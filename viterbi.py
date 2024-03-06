@@ -46,26 +46,20 @@ class Viterbi:
         self.transitions = States('transitions.csv')
         self.emissions = States('emissions.csv')
 
-    def run(self, string: str) -> Tuple[List[str], float]:
-        """Runs the Viterbi algorithm to get the most likely state sequence.
-        :param string: the string with observations to parse for parts-of-speech
-        :returns: tuple of (most likely series of states, joint probability of that series)
-        """
-
-        # runs the forward pass, storing the most likely previous state at each step
-        observed_states = [s.upper() for s in string.split()]
-        emission = self.emissions.col(observed_states.pop(0))
-        initial = self.transitions['<start>']
-        mu = initial * emission
-        state_matrix = []
-        for observed_state in observed_states:
+    def time_step(self, observed_state, mu = None):
+        if mu is None:
+            emission = self.emissions.col(observed_state)
+            initial = self.transitions['<start>']
+            mu = initial * emission
+            max_idx = None
+        else:
             state_probabilities = mu * self.transitions.matrix[1:].T
             max_idx = np.argmax(state_probabilities, axis=1)
             max_values = state_probabilities[np.arange(len(max_idx)), max_idx]  # get the max values
             mu = max_values * self.emissions.col(observed_state)  # multiply max values by emission probabilities
-            state_matrix.append(max_idx)
+        return mu, max_idx
 
-        # Traces backwards to get the maximum likelihood sequence.
+    def trace_backwards(self, mu, state_matrix):
         state = np.argmax(mu)  # start at right-hand side max value
         sequence_prob = mu[state]
         state_sequence = [self.transitions.reverse_lookup[state]]
@@ -74,6 +68,23 @@ class Viterbi:
             state_sequence.append(self.transitions.reverse_lookup[state])
 
         return state_sequence[::-1], sequence_prob
+
+    def run(self, string: str) -> Tuple[List[str], float]:
+        """Runs the Viterbi algorithm to get the most likely state sequence.
+        :param string: the string with observations to parse for parts-of-speech
+        :returns: tuple of (most likely series of states, joint probability of that series)
+        """
+
+        observed_states = [s.upper() for s in string.split()]
+        mu, _ = self.time_step(observed_states.pop(0))
+        state_matrix = []
+        # runs the forward pass, storing the most likely previous state at each step
+        for observed_state in observed_states:
+            mu, max_idx = self.time_step(observed_state, mu)
+            state_matrix.append(max_idx)
+
+        # Traces backwards to get the maximum likelihood sequence.
+        return self.trace_backwards(mu, state_matrix)
 
 
 model = Viterbi()
